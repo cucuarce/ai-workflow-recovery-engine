@@ -1,0 +1,45 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Cachés y artefactos de Python / herramientas
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Bases de datos locales (SQLite) y sus archivos auxiliares
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Secretos y configuración local (versionar solo plantillas .env.example)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs y temporales
+*.log
+logs/
+tmp/
+*.tmp
+
+# Editor / sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
