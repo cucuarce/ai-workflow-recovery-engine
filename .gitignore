@@ -23,6 +23,8 @@ data/
 *.db-journal
 *.sqlite
 *.sqlite3
+*.sqlite-*
+*.sqlite3-*
 
 # Secretos y configuración local (versionar solo plantillas .env.example)
 .env
@@ -30,6 +32,9 @@ data/
 !.env.example
 *.pem
 *.key
+# Exportaciones de n8n con credenciales (solo se versionan los workflows de n8n/workflows/)
+n8n/**/*credential*.json
+.n8n/
 
 # Logs y temporales
 *.log

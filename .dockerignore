@@ -1,5 +1,6 @@
 # Solo pyproject.toml, uv.lock, README.md y src/ entran a la imagen.
 .git/
+.github/
 .venv/
 venv/
 data/

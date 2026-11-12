@@ -1,0 +1,54 @@
+# Tests y calidad en cada push o pull request a main.
+# No usa secretos ni levanta Docker/n8n: la suite no los necesita. El smoke de Docker
+# Compose (scripts/smoke_compose.py) se ejecuta solo en local.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: pytest y Ruff (Python 3.12)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        # Acción fijada por SHA de commit (inmutable).
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Instalar uv y Python 3.12
+        # Acción fijada por SHA de commit (inmutable).
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          version: "0.12.23"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Verificar que uv.lock coincide con pyproject.toml
+        run: uv lock --check
+
+      - name: Instalar dependencias exactas del lockfile
+        run: uv sync --locked
+
+      - name: Pytest
+        run: uv run --locked python -m pytest
+
+      - name: Ruff check
+        run: uv run --locked ruff check .
+
+      - name: Ruff format
+        run: uv run --locked ruff format --check .
