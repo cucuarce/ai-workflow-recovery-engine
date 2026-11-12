@@ -19,9 +19,9 @@ recuperación periódica. Toda la lógica de recuperación vive en Python.
 > externo **simulado**, y autentica con secretos compartidos sin TLS. Ver
 > [Limitaciones conocidas](#limitaciones-conocidas).
 >
-> Sobre las badges: `tests` muestra el estado real de GitHub Actions una vez que el repositorio
-> esté publicado y el workflow haya corrido. La badge de 265 tests es **estática**: refleja la
-> última verificación local, no una ejecución de CI.
+> Sobre las badges: `tests` muestra el estado de la última ejecución de GitHub Actions sobre la
+> rama `main`. La insignia de 265 tests es estática y refleja la última verificación local, no
+> una ejecución de CI.
 
 ## Contenido
 
