@@ -35,6 +35,10 @@ class ExternalRequest:
     payload: dict[str, Any]
     scenario: Scenario | None = None
     """Fallo forzado. ``None``: comportamiento por defecto del proveedor."""
+    client_reference: str | None = None
+    """Referencia del pedido lógico del cliente (su Idempotency-Key). Informativa: el
+    receptor deduplica por ``idempotency_key``. El simulador la usa para planes de fallos
+    cargados antes de que exista la operación."""
 
 
 @dataclass(frozen=True, slots=True)

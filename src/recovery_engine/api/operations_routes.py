@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Header, Query, Response, status
+from fastapi import APIRouter, Body, Header, Query, Request, Response, status
 
 from recovery_engine.api.deps import ServiceDep
 from recovery_engine.api.schemas import (
@@ -17,6 +17,8 @@ from recovery_engine.api.schemas import (
     OperationOut,
     TransitionOut,
 )
+from recovery_engine.config import Settings
+from recovery_engine.domain.errors import FaultInjectionDisabledError
 from recovery_engine.domain.models import OperationStatus
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -84,16 +86,23 @@ def get_operation(operation_id: str, service: ServiceDep) -> OperationDetailOut:
 @router.post(
     "/{operation_id}/execute",
     response_model=ExecutionOut,
-    responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}},
+    responses={403: {"model": ErrorOut}, 404: {"model": ErrorOut}, 409: {"model": ErrorOut}},
 )
 def execute_operation(
     operation_id: str,
+    request: Request,
     service: ServiceDep,
     body: Annotated[ExecuteRequest | None, Body()] = None,
 ) -> ExecutionOut:
-    """Ejecuta un intento. Un fallo externo NO es un error HTTP: queda registrado en el intento."""
-    request = body or ExecuteRequest()
-    result = service.execute(operation_id, request.scenario)
+    """Ejecuta el primer intento. Un fallo externo NO es un error HTTP: queda en el intento.
+
+    ``scenario`` solo se acepta con ``APP_ENV=local`` y la inyección de fallos habilitada.
+    """
+    execute_request = body or ExecuteRequest()
+    settings: Settings = request.app.state.settings
+    if execute_request.scenario is not None and not settings.inline_scenarios_allowed:
+        raise FaultInjectionDisabledError()
+    result = service.execute(operation_id, execute_request.scenario)
     return ExecutionOut(
         operation=OperationOut.model_validate(result.operation),
         attempt=AttemptOut.model_validate(result.attempt),

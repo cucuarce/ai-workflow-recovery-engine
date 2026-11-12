@@ -10,7 +10,9 @@ Tablas:
 - ``external_requests``: log de cada pedido recibido con lo que ocurrió realmente,
   incluso si el cliente nunca recibió la respuesta.
 - ``fault_plan``: guion de fallos por ``operation_ref``; cada envío sin escenario forzado
-  consume la próxima entrada (si no queda ninguna, se procesa con éxito).
+  consume la próxima entrada (si no queda ninguna, se procesa con éxito). Un plan cargado
+  por referencia del cliente (``set_client_fault_plan``) se guarda bajo
+  ``client-ref:<clave>`` y se usa cuando la operación no tiene plan propio.
 - ``external_lookups``: log de consultas de reconciliación (solo lectura del estado).
 """
 
@@ -88,6 +90,7 @@ CREATE TABLE IF NOT EXISTS external_lookups (
 """
 
 RETRY_AFTER_SECONDS = 30
+CLIENT_REF_PREFIX = "client-ref:"
 
 # Fallos que ocurren antes de tocar el estado de negocio del receptor.
 _REJECTIONS: dict[Scenario, tuple[int, str, str]] = {
@@ -193,10 +196,18 @@ class ExternalServiceSimulator:
         """Escenario forzado en el pedido > próxima entrada del plan > éxito."""
         if request.scenario is not None:
             return FaultSpec(request.scenario)
+        # Un plan propio de la operación (aunque ya esté consumido) reemplaza al plan
+        # cargado por la referencia del cliente.
+        ref = request.operation_ref
+        has_own_plan = conn.execute(
+            "SELECT 1 FROM fault_plan WHERE operation_ref = ? LIMIT 1", (ref,)
+        ).fetchone()
+        if has_own_plan is None and request.client_reference is not None:
+            ref = CLIENT_REF_PREFIX + request.client_reference
         row = conn.execute(
             "SELECT id, scenario, retry_after FROM fault_plan "
             "WHERE operation_ref = ? AND consumed_at IS NULL ORDER BY id LIMIT 1",
-            (request.operation_ref,),
+            (ref,),
         ).fetchone()
         if row is None:
             return FaultSpec(Scenario.SUCCESS)
@@ -345,6 +356,10 @@ class ExternalServiceSimulator:
                 "INSERT INTO fault_plan (operation_ref, scenario, retry_after) VALUES (?, ?, ?)",
                 [(operation_ref, f.scenario.value, f.retry_after) for f in faults],
             )
+
+    def set_client_fault_plan(self, client_reference: str, faults: list[FaultSpec]) -> None:
+        """Plan para el pedido lógico del cliente; puede cargarse antes de crear la operación."""
+        self.set_fault_plan(CLIENT_REF_PREFIX + client_reference, faults)
 
     def pending_faults(self, operation_ref: str) -> list[FaultSpec]:
         with closing(self._db.connect()) as conn:

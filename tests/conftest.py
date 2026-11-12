@@ -12,6 +12,7 @@ from recovery_engine.external.simulator import ExternalServiceSimulator
 from recovery_engine.persistence.db import Database
 from recovery_engine.persistence.schema import ENGINE_SCHEMA
 from recovery_engine.services.operations import OperationService
+from support import LOCAL_TEST_CONFIG
 
 
 @pytest.fixture
@@ -19,6 +20,7 @@ def settings(tmp_path) -> Settings:
     return Settings(
         engine_db_path=tmp_path / "engine.db",
         simulator_db_path=tmp_path / "external.db",
+        **LOCAL_TEST_CONFIG,
     )
 
 

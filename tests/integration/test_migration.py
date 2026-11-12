@@ -15,6 +15,7 @@ from recovery_engine.domain.retry import no_jitter
 from recovery_engine.persistence.db import Database
 from recovery_engine.persistence.schema import ENGINE_SCHEMA, SCHEMA_VERSION, migrate_engine
 from recovery_engine.services.worker import RecoveryWorker
+from support import LOCAL_TEST_CONFIG
 
 # Esquema exacto de la Etapa 1 (congelado; no derivar del código actual).
 STAGE1_SCHEMA = """
@@ -184,7 +185,9 @@ def test_legacy_operations_are_recoverable_after_migration(tmp_path, simulator):
 def test_app_starts_on_a_stage1_database(tmp_path):
     path = tmp_path / "engine.db"
     _seed_stage1_db(path)
-    settings = Settings(engine_db_path=path, simulator_db_path=tmp_path / "external.db")
+    settings = Settings(
+        engine_db_path=path, simulator_db_path=tmp_path / "external.db", **LOCAL_TEST_CONFIG
+    )
     with TestClient(create_app(settings)) as client:
         body = client.get("/operations/op_retry").json()
     assert body["status"] == "failed_retryable"

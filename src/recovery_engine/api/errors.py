@@ -8,8 +8,10 @@ from fastapi.responses import JSONResponse
 from recovery_engine.domain.errors import (
     ConcurrentModificationError,
     DomainError,
+    FaultInjectionDisabledError,
     IdempotencyConflictError,
     InvalidTransitionError,
+    LeaseLostError,
     OperationNotExecutableError,
     OperationNotFoundError,
 )
@@ -20,6 +22,8 @@ _HTTP_STATUS: dict[type[DomainError], int] = {
     OperationNotExecutableError: 409,
     InvalidTransitionError: 409,
     ConcurrentModificationError: 409,
+    LeaseLostError: 409,
+    FaultInjectionDisabledError: 403,
 }
 
 

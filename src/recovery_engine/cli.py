@@ -75,6 +75,9 @@ def main(argv: Sequence[str] | None = None, *, runtime: Runtime | None = None) -
         report = runtime.worker(args.worker_id).run_once(args.max_operations)
         output: object = {**asdict(report), "processed": report.processed}
     elif args.command == "fault-plan":
+        if not runtime.settings.fault_injection_enabled:
+            sys.stderr.write("fault-plan requiere FAULT_INJECTION_ENABLED=true (no production)\n")
+            return 2
         runtime.simulator.set_fault_plan(args.operation_id, args.faults)
         output = {
             "operation_ref": args.operation_id,

@@ -12,6 +12,7 @@ from recovery_engine.api.app import create_app
 from recovery_engine.cli import main
 from recovery_engine.domain.retry import no_jitter
 from recovery_engine.runtime import build_runtime
+from support import TEST_ADMIN_TOKEN
 
 
 def create(client, key="k-1"):
@@ -26,8 +27,11 @@ def create(client, key="k-1"):
 
 @pytest.fixture
 def admin_client(settings, clock):
-    admin = replace(settings, enable_admin_endpoints=True)
-    with TestClient(create_app(admin, clock=clock, jitter=no_jitter)) as client:
+    admin = replace(settings, enable_admin_endpoints=True, admin_api_token=TEST_ADMIN_TOKEN)
+    with TestClient(
+        create_app(admin, clock=clock, jitter=no_jitter),
+        headers={"Authorization": f"Bearer {TEST_ADMIN_TOKEN}"},
+    ) as client:
         yield client
 
 

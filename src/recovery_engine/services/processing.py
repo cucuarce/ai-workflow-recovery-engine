@@ -333,6 +333,7 @@ class OperationProcessor:
             operation_type=operation.operation_type,
             payload=operation.payload,
             scenario=scenario,
+            client_reference=operation.idempotency_key,
         )
         try:
             response = self._external.submit(request)

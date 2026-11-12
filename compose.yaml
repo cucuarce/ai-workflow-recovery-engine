@@ -1,0 +1,86 @@
+# Entorno local de demostración: motor (FastAPI + SQLite) + n8n. Sin servicios adicionales.
+#
+# - Los puertos se publican SOLO en 127.0.0.1 (no accesibles desde la red).
+# - n8n habla con el motor únicamente por HTTP (http://engine:8000) en la red interna;
+#   no monta el volumen del motor, así que no tiene acceso a sus bases SQLite.
+# - Los secretos vienen de .env (no versionado). Ver .env.example y docs/etapa3-n8n.md.
+name: recovery-engine-demo
+
+services:
+  engine:
+    build: .
+    image: recovery-engine:local
+    restart: unless-stopped
+    environment:
+      APP_ENV: demo
+      ENGINE_API_TOKEN: ${ENGINE_API_TOKEN:?definir ENGINE_API_TOKEN en .env}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:?definir ADMIN_API_TOKEN en .env}
+      ENABLE_ADMIN_ENDPOINTS: "true"
+      # Solo demo: planes de fallos por la interfaz administrativa. Prohibido en production.
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-true}
+      RETRY_JITTER: "false"
+      RETRY_BASE_DELAY_SECONDS: "2"
+      RETRY_MAX_DELAY_SECONDS: "60"
+      LEASE_TTL_SECONDS: "30"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - engine-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.47.4
+    restart: unless-stopped
+    depends_on:
+      engine:
+        condition: service_healthy
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?definir N8N_ENCRYPTION_KEY en .env}
+      N8N_HOST: 127.0.0.1
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://127.0.0.1:5678/
+      # Acceso solo por http://127.0.0.1 (sin TLS en local).
+      N8N_SECURE_COOKIE: "false"
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+      # Sin llamadas a servicios de terceros.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_TEMPLATES_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      # Endurecimiento: sin acceso a variables de entorno ni a comandos/archivos del host.
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "true"
+      NODES_EXCLUDE: '["n8n-nodes-base.executeCommand","n8n-nodes-base.localFileTrigger","n8n-nodes-base.readWriteFile"]'
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+      # Los datos de ejecución del webhook incluyen sus headers (también el secreto entrante).
+      # El intake no guarda ejecuciones (quedan con borrado lógico); esto las borra
+      # físicamente en ~1 minuto en lugar de ~75 (valores por defecto de n8n).
+      EXECUTIONS_DATA_HARD_DELETE_BUFFER: "0"
+      EXECUTIONS_DATA_PRUNE_HARD_DELETE_INTERVAL: "1"
+      DB_SQLITE_VACUUM_ON_STARTUP: "true"
+    ports:
+      - "127.0.0.1:5678:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  engine-data:
+  n8n-data:

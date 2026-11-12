@@ -1,0 +1,335 @@
+{
+  "id": "RecIntakeWflow01",
+  "name": "Recovery Engine - 01 Intake",
+  "active": false,
+  "nodes": [
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a01",
+      "name": "Webhook entrante",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [0, 300],
+      "webhookId": "7d3c1e52-8f4a-4b6e-a2d9-3c5b7e1f0a11",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "operations",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "RecWebhookCred01",
+          "name": "Recovery Webhook Inbound"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a02",
+      "name": "¿Pedido válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [240, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7f1c0de-0001-4000-8000-000000000001",
+              "leftValue": "={{ $json.headers['idempotency-key'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a7f1c0de-0001-4000-8000-000000000002",
+              "leftValue": "={{ $json.body.operation_type }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a7f1c0de-0001-4000-8000-000000000003",
+              "leftValue": "={{ Object.keys($json.body ?? {}).filter(k => !['operation_type', 'payload'].includes(k)).length === 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a03",
+      "name": "Registrar operación",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 200],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://engine:8000/operations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Idempotency-Key",
+              "value": "={{ $json.headers['idempotency-key'] }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ operation_type: $json.body.operation_type, payload: $json.body.payload ?? {} }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "RecEngApiCred001",
+          "name": "Recovery Engine API"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a04",
+      "name": "¿Registrada?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [720, 200],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7f1c0de-0002-4000-8000-000000000001",
+              "leftValue": "={{ [200, 201].includes($json.statusCode) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a05",
+      "name": "¿Primer intento pendiente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 100],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7f1c0de-0003-4000-8000-000000000001",
+              "leftValue": "={{ $json.body.status === 'pending' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a06",
+      "name": "Ejecutar primer intento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 0],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "=http://engine:8000/operations/{{ $json.body.id }}/execute",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "RecEngApiCred001",
+          "name": "Recovery Engine API"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a07",
+      "name": "Consultar estado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 100],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 1000,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "=http://engine:8000/operations/{{ $('Registrar operación').item.json.body.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "RecEngApiCred001",
+          "name": "Recovery Engine API"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a08",
+      "name": "Responder estado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1680, 100],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.statusCode === 200 ? { operation_id: $json.body.id, idempotency_key: $json.body.idempotency_key, status: $json.body.status, attempt_count: $json.body.attempt_count, external_effect_id: $json.body.external_effect_id, last_error: $json.body.last_error, reason: $json.body.status === 'dead_letter' ? ($json.body.last_error ?? 'automatic_recovery_exhausted') : undefined, replayed: $('Registrar operación').item.json.statusCode === 200 } : { error: 'engine_unavailable' }) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode !== 200 ? 502 : ({ succeeded: 200, failed_permanent: 422, dead_letter: 409 }[$json.body.status] ?? 202) }}"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a09",
+      "name": "Responder rechazo del motor",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [960, 320],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify([409, 422].includes($json.statusCode) ? $json.body : { error: 'engine_unavailable' }) }}",
+        "options": {
+          "responseCode": "={{ [409, 422].includes($json.statusCode) ? $json.statusCode : 502 }}"
+        }
+      }
+    },
+    {
+      "id": "0b6f2a3e-5d1c-4c7a-9a41-1f0e7c2d9a10",
+      "name": "Responder pedido inválido",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [480, 440],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify(Object.keys($json.body ?? {}).filter(k => !['operation_type', 'payload'].includes(k)).length > 0 ? { error: 'unexpected_fields', fields: Object.keys($json.body ?? {}).filter(k => !['operation_type', 'payload'].includes(k)), detail: 'Solo se aceptan operation_type y payload. Los fallos del proveedor no pueden elegirse desde el webhook.' } : { error: 'invalid_request', detail: 'Se requieren el header Idempotency-Key y el campo operation_type' }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook entrante": {
+      "main": [[{ "node": "¿Pedido válido?", "type": "main", "index": 0 }]]
+    },
+    "¿Pedido válido?": {
+      "main": [
+        [{ "node": "Registrar operación", "type": "main", "index": 0 }],
+        [{ "node": "Responder pedido inválido", "type": "main", "index": 0 }]
+      ]
+    },
+    "Registrar operación": {
+      "main": [[{ "node": "¿Registrada?", "type": "main", "index": 0 }]]
+    },
+    "¿Registrada?": {
+      "main": [
+        [{ "node": "¿Primer intento pendiente?", "type": "main", "index": 0 }],
+        [{ "node": "Responder rechazo del motor", "type": "main", "index": 0 }]
+      ]
+    },
+    "¿Primer intento pendiente?": {
+      "main": [
+        [{ "node": "Ejecutar primer intento", "type": "main", "index": 0 }],
+        [{ "node": "Consultar estado", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ejecutar primer intento": {
+      "main": [[{ "node": "Consultar estado", "type": "main", "index": 0 }]]
+    },
+    "Consultar estado": {
+      "main": [[{ "node": "Responder estado", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

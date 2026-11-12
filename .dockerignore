@@ -1,0 +1,23 @@
+# Solo pyproject.toml, uv.lock, README.md y src/ entran a la imagen.
+.git/
+.venv/
+venv/
+data/
+tests/
+docs/
+n8n/
+scripts/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-*
+*.sqlite*
+.env
+.env.*
+*.pem
+*.key
+*.log
+compose.yaml
+Dockerfile

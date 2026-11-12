@@ -7,11 +7,20 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from recovery_engine.clock import format_timestamp, parse_timestamp
+from recovery_engine.config import AppEnv
 from recovery_engine.domain.retry import RetryPolicy
 from recovery_engine.external.contracts import ExternalLookup, ExternalRequest, ExternalResponse
 from recovery_engine.external.simulator import ExternalServiceSimulator
 
 START = "2026-01-01T00:00:00.000000+00:00"
+
+# Configuración explícita de los tests de Etapas 1 y 2: entorno local (sin token de API) con
+# inyección de fallos habilitada. Settings() por defecto es "production" y no la permite.
+LOCAL_TEST_CONFIG = {"app_env": AppEnv.LOCAL, "fault_injection_enabled": True}
+
+# Valores ficticios exclusivos de tests (no son credenciales).
+TEST_ENGINE_TOKEN = "test-engine-token-0000000000000000"
+TEST_ADMIN_TOKEN = "test-admin-token-11111111111111111"
 
 # Parámetros fijos de los tests de recuperación.
 LEASE_TTL = 30.0

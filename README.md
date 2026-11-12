@@ -4,15 +4,17 @@ Motor que recibe operaciones por API, las ejecuta contra un servicio externo (si
 puede fallar de distintas formas, persiste cada estado e intento en SQLite y **recupera las
 operaciones sin duplicar efectos de negocio**.
 
-> **Estado: Etapa 2 completa.** Incluye:
+> **Estado: Etapa 3 implementada (pendiente de revisión).** Incluye:
 > - registro idempotente;
 > - simulación de fallos;
 > - reintentos con backoff exponencial, jitter y respeto de `Retry-After`;
 > - lease con fencing;
 > - recuperación tras caídas;
-> - reconciliación de resultados inciertos y dead-letter.
+> - reconciliación de resultados inciertos y dead-letter;
+> - **integración con n8n** (Docker Compose, webhook de entrada y worker periódico),
+>   autenticación con tokens separados y configuración segura por defecto.
 >
-> La integración con n8n corresponde a la **Etapa 3** y todavía no está implementada.
+> Runbook de la integración, demo y riesgos: [`docs/etapa3-n8n.md`](docs/etapa3-n8n.md).
 
 ---
 
@@ -35,8 +37,8 @@ deja operaciones colgadas. Este motor distingue los casos y solo reenvía cuando
 
 ```mermaid
 flowchart LR
-    C[Cliente / webhook] -->|HTTP + Idempotency-Key| API
-    T[CLI · POST /worker/run<br/>n8n en Etapa 3] --> W
+    C[Cliente → n8n Workflow 1<br/>webhook] -->|HTTP + Bearer API<br/>Idempotency-Key| API
+    T[n8n Workflow 2 · CLI<br/>POST /worker/run + Bearer admin] --> W
 
     subgraph Motor["Motor (engine.db)"]
         API[api/] --> SVC[services/operations<br/>create · execute]
@@ -66,7 +68,7 @@ flowchart LR
 
 ```
 src/recovery_engine/
-├── config.py · clock.py · runtime.py   # settings, reloj/IDs, cableado compartido API/CLI
+├── config.py · clock.py · runtime.py   # settings validados (APP_ENV), reloj/IDs, cableado
 ├── cli.py                              # recovery-engine worker | fault-plan | show
 ├── domain/
 │   ├── models.py          # Operation, Attempt, estados, outcomes
@@ -85,12 +87,18 @@ src/recovery_engine/
 │   ├── processing.py      # claim, reconciliación, envío, registro    (Etapa 2)
 │   └── worker.py          # RecoveryWorker.run_once                    (Etapa 2)
 └── api/
+    ├── security.py        # Bearer: ENGINE_API_TOKEN / ADMIN_API_TOKEN   (Etapa 3)
     ├── operations_routes.py · simulator_routes.py
-    └── admin_routes.py    # POST /worker/run, PUT fault-plans (opt-in) (Etapa 2)
+    ├── admin_routes.py    # POST /worker/run (admin)
+    └── fault_plan_routes.py  # PUT fault-plans (admin + inyección; demo)  (Etapa 3)
 tests/
-├── support.py             # FakeClock, clientes que simulan caídas
-├── unit/                  # política de reintentos, estados, simulador
-└── integration/           # recuperación, migración, interfaces del worker, API
+├── support.py             # FakeClock, clientes que simulan caídas, configuración de tests
+├── unit/                  # política de reintentos, estados, simulador, workflows n8n
+└── integration/           # recuperación, migración, worker, API, seguridad, flujos n8n
+Dockerfile · compose.yaml · .env.example   # entorno local motor + n8n          (Etapa 3)
+n8n/workflows/             # 01-intake.json, 02-recovery.json                  (Etapa 3)
+scripts/smoke_compose.py   # smoke de Docker Compose + demo                     (Etapa 3)
+docs/etapa3-n8n.md         # runbook de la integración
 ```
 
 ---
@@ -218,37 +226,42 @@ Cuando el worker reclama una operación en `outcome_unknown`, o un `in_progress`
 
 Interfaces de disparo:
 - **CLI** (siempre disponible): `uv run recovery-engine worker --max-operations 10`.
-- **HTTP** (opt-in): `POST /worker/run?max_operations=10&worker_id=...`. Es la interfaz que podrá
-  usar n8n en la Etapa 3.
+- **HTTP** (opt-in, con `ADMIN_API_TOKEN`): `POST /worker/run?max_operations=10&worker_id=...`.
+  Es la que usa el Workflow 2 de n8n cada 30 s.
 
 ---
 
 ## Endpoints
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| `POST` | `/operations` | Registra una operación (header `Idempotency-Key` obligatorio). `201` nueva / `200` reutilizada / `409` conflicto. |
-| `GET` | `/operations` | Lista, con filtro `?status=` (incluye `dead_letter`). |
-| `GET` | `/operations/{id}` | Detalle: estado, lease, `next_attempt_at`, intentos (tipo, decisión, token, worker) y transiciones (token, actor). |
-| `POST` | `/operations/{id}/execute` | **Primer** intento de una operación `pending`. Body opcional `{"scenario": "..."}`. Los reintentos los hace el worker; sobre otro estado devuelve `409`. |
-| `GET` | `/simulator/requests` · `/effects` · `/duplicates` · `/lookups` | Observación del proveedor simulado (solo lectura). |
-| `POST` | `/worker/run` | ⚠️ **Admin, opt-in.** Una corrida del worker. |
-| `PUT` | `/simulator/fault-plans/{operation_id}` | ⚠️ **Admin, opt-in.** Guion de fallos de una operación. |
-| `GET` | `/health` | Estado del servicio. |
+| Método | Ruta | Token | Descripción |
+|---|---|---|---|
+| `POST` | `/operations` | API | Registra una operación (header `Idempotency-Key` obligatorio). `201` nueva / `200` reutilizada / `409` conflicto. |
+| `GET` | `/operations` | API | Lista, con filtro `?status=` (incluye `dead_letter`). |
+| `GET` | `/operations/{id}` | API | Detalle: estado, lease, `next_attempt_at`, intentos (tipo, decisión, token, worker) y transiciones (token, actor). |
+| `POST` | `/operations/{id}/execute` | API | **Primer** intento de una operación `pending`. `{"scenario": "..."}` solo se acepta con `APP_ENV=local`; en otro entorno, `403`. Sobre otro estado devuelve `409`. |
+| `GET` | `/simulator/requests` · `/effects` · `/duplicates` · `/lookups` | admin | Observación del proveedor simulado. Solo en `demo`/`local`, con inyección de fallos o endpoints admin habilitados. **Nunca en `production`**. |
+| `POST` | `/worker/run` | admin | Una corrida del worker. Requiere `ENABLE_ADMIN_ENDPOINTS=true`. |
+| `PUT` | `/simulator/fault-plans/{operation_id}` | admin | Guion de fallos de una operación. Requiere endpoints admin **e** inyección de fallos (nunca en `production`). |
+| `PUT` | `/simulator/fault-plans/by-idempotency-key/{key}` | admin | Ídem, cargado **antes** del pedido, por la clave del cliente. Es la vía de la demo con n8n. |
+| `GET` | `/health` | — | Estado del servicio. |
 
-> ⚠️ **Endpoints administrativos.** Solo se montan con `ENABLE_ADMIN_ENDPOINTS=true` y **no
-> tienen autenticación**. Permiten forzar procesamiento y reescribir el comportamiento del
-> simulador. Úselos solo en local (uvicorn escucha en `127.0.0.1` por defecto) y no los exponga
-> a una red no confiable. Para operar sin habilitarlos, use el CLI.
+> **Autenticación.** `Authorization: Bearer <token>`. Sin token: `401`; con un token inválido o
+> de la otra superficie: `403`. `ENGINE_API_TOKEN` y `ADMIN_API_TOKEN` deben ser distintos y
+> tener al menos 32 caracteres. Solo con `APP_ENV=local` se puede omitir el token de API
+> (desarrollo en `127.0.0.1` y tests). Los endpoints administrativos exigen `ADMIN_API_TOKEN`
+> en **todos** los entornos. Los errores `401`/`403` usan el formato estándar de FastAPI
+> (`{"detail": {"error", "detail"}}`), distinto del formato plano del resto; se conserva así.
 
 ---
 
 ## Simulador de fallos
 
 El escenario de cada envío sale, en este orden de prioridad, de:
-1. el escenario forzado en `execute`;
+1. el escenario forzado en `execute` (solo `APP_ENV=local`);
 2. la próxima entrada del **fault plan** de la operación;
-3. `success`, si no hay ninguno de los anteriores.
+3. si la operación no tiene plan propio, la próxima entrada del plan cargado por la
+   `Idempotency-Key` del cliente;
+4. `success`, si no hay ninguno de los anteriores.
 
 | Escenario | ¿Procesa? | ¿Llega la respuesta? | Resultado en el motor |
 |---|---|---|---|
@@ -266,13 +279,24 @@ Con `SIMULATOR_HONOR_IDEMPOTENCY=false`, el receptor no deduplica y declara
 
 ## Ejecución local
 
+La configuración es **segura por defecto** (`APP_ENV=production`): sin `ENGINE_API_TOKEN` la
+aplicación no arranca y la inyección de fallos está prohibida. Para desarrollo local, declarar
+el entorno explícitamente:
+
 ```bash
 uv sync
+export APP_ENV=local FAULT_INJECTION_ENABLED=true   # solo en tu máquina; escucha en 127.0.0.1
 uv run uvicorn recovery_engine.api.app:create_app --factory --reload   # http://127.0.0.1:8000/docs
 ```
 
+Para el entorno con n8n (Docker Compose), ver [`docs/etapa3-n8n.md`](docs/etapa3-n8n.md).
+
 | Variable | Default | Uso |
 |---|---|---|
+| `APP_ENV` | `production` | `production` / `demo` / `local`. Ver la matriz en el runbook. |
+| `ENGINE_API_TOKEN` | — | Bearer de `/operations*`. Obligatorio fuera de `local`. |
+| `ADMIN_API_TOKEN` | — | Bearer del worker, planes de fallos y `/simulator/*`. |
+| `FAULT_INJECTION_ENABLED` | `false` | Simulación de fallos a pedido. Prohibida en `production`. |
 | `RECOVERY_DATA_DIR` | `data` | Carpeta de las dos bases. |
 | `RECOVERY_ENGINE_DB` / `RECOVERY_SIMULATOR_DB` | `<data>/engine.db` / `<data>/external_simulator.db` | Rutas explícitas. |
 | `RETRY_MAX_ATTEMPTS` | `5` | Envíos máximos por operación. |
@@ -281,7 +305,7 @@ uv run uvicorn recovery_engine.api.app:create_app --factory --reload   # http://
 | `RETRY_JITTER` | `true` | `false` hace los delays exactos (útil para demos). |
 | `LEASE_TTL_SECONDS` | `30` | Duración del lease. Debe superar el timeout del proveedor. |
 | `SIMULATOR_HONOR_IDEMPOTENCY` | `true` | Idempotencia del receptor. |
-| `ENABLE_ADMIN_ENDPOINTS` | `false` | Monta `/worker/run` y `/simulator/fault-plans`. |
+| `ENABLE_ADMIN_ENDPOINTS` | `false` | Monta `/worker/run` (y los planes de fallos si hay inyección). Exige `ADMIN_API_TOKEN`. |
 
 Las bases de la Etapa 1 se migran automáticamente al iniciar la API o el CLI (esquema v2,
 `PRAGMA user_version = 2`). La migración reconstruye `operations` y `attempts` (porque cambian
@@ -301,13 +325,13 @@ uv run ruff format --check .
 
 ## Reproducir escenarios manualmente
 
-Los ejemplos usan el **CLI**, que no requiere habilitar endpoints administrativos. API y CLI
-comparten las bases a través de `RECOVERY_DATA_DIR`. Para delays exactos, exportá
-`RETRY_JITTER=false` y `RETRY_BASE_DELAY_SECONDS=1`. Si querés reiniciar el entorno, borrá la
-carpeta `data/`.
+Los ejemplos usan el **CLI**, que no requiere habilitar endpoints administrativos, en modo
+`local`. API y CLI comparten las bases a través de `RECOVERY_DATA_DIR`. Para delays exactos,
+exportá `RETRY_JITTER=false` y `RETRY_BASE_DELAY_SECONDS=1`. Si querés reiniciar el entorno,
+borrá la carpeta `data/`.
 
 ```bash
-export RETRY_JITTER=false RETRY_BASE_DELAY_SECONDS=1
+export APP_ENV=local FAULT_INJECTION_ENABLED=true RETRY_JITTER=false RETRY_BASE_DELAY_SECONDS=1
 uv run uvicorn recovery_engine.api.app:create_app --factory &   # en otra terminal, si preferís
 
 # Registrar una operación (anotar el "id")
@@ -366,8 +390,8 @@ uv run recovery-engine worker --worker-id manual-recovery
 uv run recovery-engine show <id>                          # intentos: abandoned -> reconcile -> ...
 ```
 
-Equivalente por HTTP, con `ENABLE_ADMIN_ENDPOINTS=true` (solo local):
-`curl -s -X POST "localhost:8000/worker/run?max_operations=10"`.
+Equivalente por HTTP, con `ENABLE_ADMIN_ENDPOINTS=true` y `ADMIN_API_TOKEN` definido:
+`curl -s -X POST "localhost:8000/worker/run?max_operations=10" -H "Authorization: Bearer $ADMIN_API_TOKEN"`.
 
 ---
 
@@ -381,7 +405,13 @@ Equivalente por HTTP, con `ENABLE_ADMIN_ENDPOINTS=true` (solo local):
 - **`execute` se mantiene como "primer intento".** Conserva el contrato de la Etapa 1. Los
   reintentos manuales irían en contra del backoff, así que los hace solo el worker.
 - **Worker acotado y sin scheduler.** Es determinístico y fácil de disparar desde cron, CLI o n8n.
-- **Endpoints administrativos apagados por defecto.** El CLI cubre la operación local.
+- **Endpoints administrativos apagados por defecto** y, cuando se habilitan, siempre con
+  `ADMIN_API_TOKEN`. El CLI cubre la operación local.
+- **Configuración segura por defecto (Etapa 3).** `Settings()` es `production`; las
+  combinaciones inseguras no se pueden construir, así que la aplicación no arranca. Los tests
+  declaran explícitamente su entorno (`LOCAL_TEST_CONFIG` en `tests/support.py`).
+- **n8n solo orquesta (Etapa 3).** Dos workflows sin nodos de código: intake (registrar,
+  primer intento, responder) y recovery (disparar el worker). La recuperación sigue en Python.
 - **`dead_letter` no es terminal.** Queda declarada una salida de redrive manual que siempre
   pasa por reconciliación. Todavía no tiene endpoint, para no exponer una acción riesgosa sin
   autenticación.
@@ -396,13 +426,16 @@ Equivalente por HTTP, con `ENABLE_ADMIN_ENDPOINTS=true` (solo local):
 - **Redrive de `dead_letter`:** la transición está declarada, pero no hay comando ni endpoint.
 - **Un resultado tardío descartado por fencing** no se guarda localmente. La verdad queda en el
   log del proveedor (`/simulator/requests`) y el nuevo dueño la recupera por reconciliación.
-- **Sin autenticación** en ningún endpoint (entorno local de demostración).
+- **Autenticación por token compartido** (Bearer en el motor, Header Auth en el webhook), sin
+  usuarios, rotación automática ni TLS propio. Pensado para `127.0.0.1` y la red interna de
+  compose. Para uso externo se requieren TLS y controles adicionales.
+- **Secreto del webhook en n8n:** n8n guarda los headers entrantes en los datos de ejecución.
+  El intake no guarda ejecuciones y compose fuerza su borrado físico en alrededor de 1 minuto
+  (ver el runbook).
 - **SQLite serializa escrituras.** Alcanza para el MVP. Para muchos workers en paralelo
   convendría PostgreSQL con `SELECT ... FOR UPDATE SKIP LOCKED`.
 - **El hash del payload depende del JSON** (`1` ≠ `1.0`), y las claves idempotentes no expiran.
 
-## Próximos pasos (Etapa 3, no implementada)
+## Pendiente (fuera del alcance de la Etapa 3)
 
-- Disparo del worker desde n8n (`POST /worker/run`) y webhooks de entrada desde n8n.
-- Autenticación de los endpoints administrativos antes de exponerlos.
 - Redrive manual de `dead_letter` con auditoría.

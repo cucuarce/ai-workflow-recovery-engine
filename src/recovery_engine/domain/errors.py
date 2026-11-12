@@ -60,6 +60,18 @@ class ConcurrentModificationError(DomainError):
         self.operation_id = operation_id
 
 
+class FaultInjectionDisabledError(DomainError):
+    """Se pidió un escenario de fallo en un entorno que no permite elegirlo en el pedido."""
+
+    code = "fault_injection_disabled"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Este entorno no acepta 'scenario' en execute. En demo, los fallos se configuran "
+            "antes con PUT /simulator/fault-plans (token administrativo)"
+        )
+
+
 class LeaseLostError(DomainError):
     """Fencing: otro dueño reclamó la operación (el token de lease ya no coincide)."""
 
